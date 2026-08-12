@@ -31,6 +31,8 @@ import {
   Mail,
   Phone,
   IdCard,
+  Eye,
+  EyeOff,
 } from "./icons";
 import {
   LineChart,
@@ -118,6 +120,7 @@ export function WaterApp() {
     [page, setPage] = useState<Page>("dashboard"),
     [open, setOpen] = useState(true),
     [mobile, setMobile] = useState(false),
+    [loggingOut, setLoggingOut] = useState(false),
     [role, setRole] = useState<Role>("Operator"),
     [readings, setReadings] = useState(initialReadings),
     [requests, setRequests] = useState<AccessRequest[]>([
@@ -132,6 +135,18 @@ export function WaterApp() {
       },
     ]);
   const canWrite = ["Admin", "Supervisor", "Operator"].includes(role);
+  async function handleLogout() {
+    if (loggingOut) return;
+    setLoggingOut(true);
+    try {
+      await signOut();
+      setAuthenticated(false);
+      setPage("dashboard");
+      setMobile(false);
+    } finally {
+      setLoggingOut(false);
+    }
+  }
   useEffect(() => {
     let active = true;
     (async () => {
@@ -256,12 +271,9 @@ export function WaterApp() {
         </nav>
         <div className="absolute inset-x-3 bottom-3 border-t border-white/15 pt-3">
           <button
-            onClick={async () => {
-              await signOut();
-              setAuthenticated(false);
-              setPage("dashboard");
-            }}
-            className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm hover:bg-white/10"
+            onClick={handleLogout}
+            disabled={loggingOut}
+            className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm hover:bg-white/10 disabled:cursor-wait disabled:opacity-60"
           >
             <LogOut size={18} />
             ออกจากระบบ
@@ -312,6 +324,18 @@ export function WaterApp() {
               {roleThai[role]}
             </div>
           )}
+          <button
+            type="button"
+            onClick={handleLogout}
+            disabled={loggingOut}
+            aria-label="ออกจากระบบ"
+            className="ml-2 inline-flex min-h-10 items-center gap-2 rounded-lg border border-[#9bbdce] bg-white px-3 text-sm font-bold text-[#063b66] hover:bg-[#f4f9fc] disabled:cursor-wait disabled:opacity-60"
+          >
+            <LogOut size={17} aria-hidden="true" />
+            <span className="hidden md:inline">
+              {loggingOut ? "กำลังออกจากระบบ…" : "ออกจากระบบ"}
+            </span>
+          </button>
           <div className="ml-3 grid size-9 place-items-center rounded-full bg-[#d9effb] text-sm font-bold text-[#063b66]">
             ส
           </div>
@@ -410,6 +434,7 @@ function AuthFlow({
     [submitted, setSubmitted] = useState(false),
     [authError, setAuthError] = useState(""),
     [authLoading, setAuthLoading] = useState(false),
+    [showPassword, setShowPassword] = useState(false),
     [login, setLogin] = useState({ identity: "", password: "" }),
     [form, setForm] = useState({
       employeeId: "",
@@ -505,15 +530,28 @@ function AuthFlow({
             </AuthField>
             <AuthField label="รหัสผ่าน" icon={<ShieldCheck />}>
               <input
-                type="password"
+                type={showPassword ? "text" : "password"}
                 autoComplete="current-password"
                 value={login.password}
                 onChange={(e) =>
                   setLogin((x) => ({ ...x, password: e.target.value }))
                 }
-                className="w-full rounded-lg border border-[#9bbdce] py-3 pl-11 pr-3"
+                className="w-full rounded-lg border border-[#9bbdce] py-3 pl-11 pr-12 text-base"
                 placeholder="กรอกรหัสผ่าน"
               />
+              <button
+                type="button"
+                onClick={() => setShowPassword((visible) => !visible)}
+                aria-label={showPassword ? "ซ่อนรหัสผ่าน" : "แสดงรหัสผ่าน"}
+                aria-pressed={showPassword}
+                className="absolute right-1 top-1/2 grid size-10 -translate-y-1/2 place-items-center rounded-lg text-[#5b7180] hover:bg-[#eaf6fd] hover:text-[#063b66]"
+              >
+                {showPassword ? (
+                  <EyeOff size={19} aria-hidden="true" />
+                ) : (
+                  <Eye size={19} aria-hidden="true" />
+                )}
+              </button>
             </AuthField>
             {submitted && (!login.identity || !login.password) && (
               <ErrorText text="กรุณากรอกข้อมูลเข้าสู่ระบบให้ครบ" />
