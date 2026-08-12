@@ -51,18 +51,16 @@ import {
   formatNumber,
 } from "@/features/meter-readings/calculations";
 import {
-  distributionFields,
   hourlyTimes,
-  initialReadings,
-  rawFields,
+  getMeterFields,
   rawTimes,
-  systemUsers,
-} from "@/features/meter-readings/mock-data";
+} from "@/features/meter-readings/meter-config";
 import type {
   MeterField,
   MeterKind,
   Reading,
   Role,
+  MeterConfiguration,
 } from "@/features/meter-readings/types";
 import {
   getReportSeries,
@@ -76,7 +74,19 @@ import {
   signIn,
   signOut,
   isSupabaseConfigured,
+  submitAccessRequest,
 } from "@/features/auth/supabase-auth";
+import {
+  createReading,
+  changeReading,
+  loadMeterConfiguration,
+  loadReadings,
+} from "@/features/meter-readings/supabase-repository";
+import {
+  loadAdminData,
+  reviewAccessRequest,
+  type AdminUser,
+} from "@/features/auth/admin-repository";
 
 type Page =
   | "dashboard"
@@ -104,16 +114,6 @@ const roleThai: Record<Role, string> = {
   Operator: "ผู้ปฏิบัติงาน",
   Viewer: "ผู้ตรวจสอบ",
 };
-const chartData = [
-  { t: "00:00", v: 312 },
-  { t: "04:00", v: 284 },
-  { t: "08:00", v: 438 },
-  { t: "12:00", v: 476 },
-  { t: "16:00", v: 451 },
-  { t: "20:00", v: 390 },
-  { t: "24:00", v: 326 },
-];
-
 export function WaterApp() {
   const [authenticated, setAuthenticated] = useState(false),
     [authReady, setAuthReady] = useState(false),
@@ -122,19 +122,26 @@ export function WaterApp() {
     [mobile, setMobile] = useState(false),
     [loggingOut, setLoggingOut] = useState(false),
     [role, setRole] = useState<Role>("Operator"),
-    [readings, setReadings] = useState(initialReadings),
-    [requests, setRequests] = useState<AccessRequest[]>([
-      {
-        id: "REQ-001",
-        employeeId: "54017",
-        fullName: "นายกิตติพงศ์ ใจดี",
-        position: "พนักงานผลิตน้ำ",
-        phone: "0891234567",
-        email: "kittipong@example.go.th",
-        status: "pending",
-      },
-    ]);
+    [readings, setReadings] = useState<Reading[]>([]),
+    [configuration, setConfiguration] = useState<MeterConfiguration | null>(
+      null,
+    ),
+    [dataError, setDataError] = useState(""),
+    [users, setUsers] = useState<AdminUser[]>([]),
+    [requests, setRequests] = useState<AccessRequest[]>([]);
   const canWrite = ["Admin", "Supervisor", "Operator"].includes(role);
+  async function initializeData(stationCode: string) {
+    const config = await loadMeterConfiguration(stationCode);
+    const rows = await loadReadings(config.stationId);
+    setConfiguration(config);
+    setReadings(rows);
+    setDataError("");
+  }
+  async function initializeAdminData() {
+    const admin = await loadAdminData();
+    setRequests(admin.requests);
+    setUsers(admin.users);
+  }
   async function handleLogout() {
     if (loggingOut) return;
     setLoggingOut(true);
@@ -157,6 +164,8 @@ export function WaterApp() {
       try {
         const access = await getCurrentUserAccess();
         if (active && access) {
+          await initializeData(access.stationCode);
+          if (access.role === "Admin") await initializeAdminData();
           setRole(access.role);
           setAuthenticated(true);
         }
@@ -179,12 +188,10 @@ export function WaterApp() {
     return (
       <AuthFlow
         onLogin={async (identity, password) => {
-          const result = await signIn(identity, password);
-          if (result.demo) {
-            setAuthenticated(true);
-            return;
-          }
+          await signIn(identity, password);
           const access = await getCurrentUserAccess();
+          if (access) await initializeData(access.stationCode);
+          if (access?.role === "Admin") await initializeAdminData();
           if (!access) throw new Error("ไม่พบข้อมูลสิทธิ์ผู้ใช้งาน");
           setRole(access.role);
           setAuthenticated(true);
@@ -294,7 +301,7 @@ export function WaterApp() {
               แม่ข่ายสุไหงโก-ลก
             </div>
             <div className="truncate text-xs text-[#5b7180]">
-              สถานะระบบ: พร้อมใช้งาน · ข้อมูลตัวอย่าง
+              สถานะระบบ: เชื่อมต่อ Supabase แล้ว
             </div>
           </div>
           <label
@@ -345,6 +352,7 @@ export function WaterApp() {
             <Dashboard
               onRecord={() => setPage("records")}
               canWrite={canWrite}
+              readings={readings}
             />
           )}{" "}
           {page === "records" && <RecordMenu onSelect={setPage} />}{" "}
@@ -352,30 +360,18 @@ export function WaterApp() {
             <ReadingForm
               kind={page}
               readings={readings}
+              configuration={configuration}
               onCancel={() => setPage("records")}
-              onSave={(r) => {
-                const actor =
-                  role === "Admin"
-                    ? "นายอำนาจ ทัฬหกิจ"
-                    : role === "Supervisor"
-                      ? "นายวิศิษฎ์ บุญมาศ"
-                      : "นายศราวุธ นิลโมจน์";
-                setReadings((x) => [
-                  {
-                    ...r,
-                    by: actor,
-                    status: "active",
-                    audit: [
-                      {
-                        id: crypto.randomUUID(),
-                        action: "created",
-                        by: actor,
-                        at: "เมื่อสักครู่",
-                      },
-                    ],
-                  },
-                  ...x,
-                ]);
+              onSave={async (r) => {
+                if (!configuration) throw new Error("ไม่พบการตั้งค่าสถานี");
+                await createReading({
+                  stationId: configuration.stationId,
+                  meterGroupId: configuration.groupIds[r.kind],
+                  date: r.date,
+                  time: r.time,
+                  values: r.values,
+                });
+                setReadings(await loadReadings(configuration.stationId));
                 setPage("dashboard");
               }}
             />
@@ -388,7 +384,12 @@ export function WaterApp() {
             />
           )}{" "}
           {page === "users" && (
-            <UsersPage requests={requests} setRequests={setRequests} />
+            <UsersPage
+              requests={requests}
+              users={users}
+              stationId={configuration?.stationId ?? ""}
+              onChanged={initializeAdminData}
+            />
           )}{" "}
           {page === "settings" && <Placeholder page={page} />}
         </div>
@@ -435,6 +436,7 @@ function AuthFlow({
     [authError, setAuthError] = useState(""),
     [authLoading, setAuthLoading] = useState(false),
     [showPassword, setShowPassword] = useState(false),
+    [requestNo, setRequestNo] = useState(""),
     [login, setLogin] = useState({ identity: "", password: "" }),
     [form, setForm] = useState({
       employeeId: "",
@@ -453,7 +455,6 @@ function AuthFlow({
       phoneOk &&
       emailOk &&
       form.consent;
-  // eslint-disable-next-line react-hooks/purity -- mock-only request number; backend will supply the persistent identifier
   if (view === "pending")
     return (
       <AuthShell>
@@ -471,7 +472,7 @@ function AuthFlow({
           <div className="mt-6 bg-[#f4f9fc] p-4 text-left text-sm">
             <div className="text-xs text-[#5b7180]">เลขที่คำขอ</div>
             <div className="tabular mt-1 font-bold text-[#063b66]">
-              REQ-{Date.now().toString().slice(-6)}
+              {requestNo}
             </div>
             <div className="mt-3 text-xs text-[#5b7180]">สถานะ</div>
             <div className="mt-1 inline-flex items-center gap-1 font-bold text-[#7a5200]">
@@ -507,9 +508,7 @@ function AuthFlow({
                 await onLogin(login.identity, login.password);
               } catch (error) {
                 setAuthError(
-                  error instanceof Error
-                    ? error.message
-                    : "Login failed",
+                  error instanceof Error ? error.message : "Login failed",
                 );
               } finally {
                 setAuthLoading(false);
@@ -578,16 +577,6 @@ function AuthFlow({
               ขอเข้าใช้งานครั้งแรก
             </button>
           </div>
-          <button
-            onClick={() => onLogin("demo", "demo")}
-            className={
-              isSupabaseConfigured
-                ? "hidden"
-                : "mt-6 w-full text-center text-xs text-[#5b7180] underline underline-offset-4"
-            }
-          >
-            เข้าสู่ระบบด้วยบัญชีตัวอย่างสำหรับทดสอบ UI
-          </button>
         </div>
       ) : (
         <div className="mx-auto max-w-2xl">
@@ -608,16 +597,23 @@ function AuthFlow({
             กรอกข้อมูลเพื่อส่งให้ผู้ดูแลระบบตรวจสอบและกำหนดสิทธิ์
           </p>
           <form
-            onSubmit={(e) => {
+            onSubmit={async (e) => {
               e.preventDefault();
               setSubmitted(true);
               if (requestValid) {
-                onRequest({
-                  id: crypto.randomUUID(),
-                  ...form,
-                  status: "pending",
-                });
-                setView("pending");
+                setAuthLoading(true);
+                setAuthError("");
+                try {
+                  const result = await submitAccessRequest(form);
+                  setRequestNo(result.requestNo);
+                  setView("pending");
+                } catch (error) {
+                  setAuthError(
+                    error instanceof Error ? error.message : "ส่งคำขอไม่สำเร็จ",
+                  );
+                } finally {
+                  setAuthLoading(false);
+                }
               }
             }}
             className="mt-6 grid gap-4 md:grid-cols-2"
@@ -702,6 +698,11 @@ function AuthFlow({
             {submitted && !form.consent && (
               <div className="md:col-span-2">
                 <ErrorText text="กรุณายอมรับเงื่อนไขก่อนส่งคำขอ" />
+              </div>
+            )}
+            {authError && (
+              <div className="md:col-span-2">
+                <ErrorText text={authError} />
               </div>
             )}
             <div className="md:col-span-2">
@@ -815,10 +816,26 @@ function AuthInput({
 function Dashboard({
   onRecord,
   canWrite,
+  readings,
 }: {
   onRecord: () => void;
   canWrite: boolean;
+  readings: Reading[];
 }) {
+  const chartData = readings
+    .filter(
+      (reading) =>
+        reading.kind === "distribution" && reading.status === "active",
+    )
+    .slice(0, 24)
+    .reverse()
+    .map((reading) => ({
+      t: reading.time.slice(0, 5),
+      v: Object.values(reading.differences ?? {}).reduce<number>(
+        (sum, value) => sum + (value ?? 0),
+        0,
+      ),
+    }));
   return (
     <div className="mx-auto max-w-[1280px]">
       <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
@@ -827,7 +844,7 @@ function Dashboard({
             ภาพรวมการผลิตน้ำ
           </h1>
           <p className="mt-1 text-sm text-[#5b7180]">
-            วันพุธที่ 12 สิงหาคม 2569 · ข้อมูลตัวอย่าง
+            ข้อมูลการผลิตน้ำจาก Supabase
           </p>
         </div>
         {canWrite && (
@@ -864,13 +881,22 @@ function Dashboard({
           </div>
           <Metric
             label="น้ำดิบรวมล่าสุด"
-            value="386"
+            value={formatNumber(
+              Object.values(
+                readings.find((r) => r.kind === "raw")?.differences ?? {},
+              ).reduce<number>((sum, value) => sum + (value ?? 0), 0),
+            )}
             unit="ลบ.ม."
             note="รอบ 06.00 น."
           />
           <Metric
             label="จ่ายน้ำรวมล่าสุด"
-            value="321"
+            value={formatNumber(
+              Object.values(
+                readings.find((r) => r.kind === "distribution")?.differences ??
+                  {},
+              ).reduce<number>((sum, value) => sum + (value ?? 0), 0),
+            )}
             unit="ลบ.ม."
             note="รอบ 05.00 น."
           />
@@ -888,7 +914,7 @@ function Dashboard({
               </p>
             </div>
             <span className="rounded-full bg-[#eaf6fd] px-3 py-1 text-xs font-bold text-[#087ac1]">
-              ข้อมูลตัวอย่าง
+              ข้อมูลจริง
             </span>
           </div>
           <div className="h-[280px]">
@@ -921,7 +947,7 @@ function Dashboard({
         <section className="bg-white p-5 ring-1 ring-[#cfe3ef] md:p-6">
           <h2 className="text-lg font-bold text-[#063b66]">รายการล่าสุด</h2>
           <div className="mt-3 divide-y divide-[#dcebf3]">
-            {initialReadings.map((r) => (
+            {readings.slice(0, 5).map((r) => (
               <div key={r.id} className="py-4">
                 <div className="flex justify-between gap-3">
                   <span className="text-sm font-bold">
@@ -1017,18 +1043,21 @@ function RecordMenu({ onSelect }: { onSelect: (page: Page) => void }) {
 function ReadingForm({
   kind,
   readings,
+  configuration,
   onSave,
   onCancel,
 }: {
   kind: MeterKind;
   readings: Reading[];
+  configuration: MeterConfiguration | null;
   onSave: (r: Reading) => void;
   onCancel: () => void;
 }) {
   const isRaw = kind === "raw",
-    fields = isRaw ? rawFields : distributionFields,
+    fields = getMeterFields(kind, readings),
     times = isRaw ? rawTimes : hourlyTimes;
-  const [date, setDate] = useState("2026-08-12"),
+  const today = new Date().toISOString().slice(0, 10);
+  const [date, setDate] = useState(today),
     [time, setTime] = useState(isRaw ? "14.00 น." : "06.00 น."),
     [values, setValues] = useState<Record<string, string>>({}),
     [confirm, setConfirm] = useState(false),
@@ -1093,7 +1122,7 @@ function ReadingForm({
               <input
                 type="date"
                 value={date}
-                max="2026-08-12"
+                max={today}
                 onChange={(e) => setDate(e.target.value)}
                 className="w-full rounded-lg border border-[#9bbdce] py-2.5 pl-10 pr-3"
               />
@@ -1324,7 +1353,7 @@ function Reports({
   const [report, setReport] = useState<ReportKey>("raw-water"),
     [period, setPeriod] = useState<ReportPeriod>("shift");
   const definition = reportDefinitions.find((item) => item.key === report)!,
-    series = getReportSeries(report, period);
+    series = getReportSeries(readings, period);
   const rows = series.map((item) => ({
     ...item,
     loss: productionLossPercent(item.raw, item.produced),
@@ -1347,7 +1376,7 @@ function Reports({
             Dashboard / รายงาน
           </h1>
           <p className="mt-1 text-sm text-[#5b7180]">
-            วิเคราะห์ข้อมูลการผลิตน้ำของแม่ข่ายสุไหงโก-ลก · ข้อมูลตัวอย่าง
+            วิเคราะห์ข้อมูลการผลิตน้ำของแม่ข่ายสุไหงโก-ลกจาก Supabase
           </p>
         </div>
         <label className="text-xs font-bold text-[#5b7180]">
@@ -1717,7 +1746,7 @@ function RecordManagement({
       : role === "Supervisor"
         ? "นายวิศิษฎ์ บุญมาศ"
         : "นายศราวุธ นิลโมจน์";
-  const submitEdit = () => {
+  const submitEdit = async () => {
     if (
       !selected ||
       reason.trim().length < 5 ||
@@ -1727,6 +1756,7 @@ function RecordManagement({
     const after = Object.fromEntries(
       Object.entries(draft).map(([key, value]) => [key, Number(value)]),
     );
+    await changeReading(selected.id, "edit", reason.trim(), after);
     update(
       selected,
       { values: after },
@@ -1742,9 +1772,10 @@ function RecordManagement({
     );
     close();
   };
-  const submitCancel = () => {
+  const submitCancel = async () => {
     if (!selected || reason.trim().length < 5) return;
     const requestOnly = canOperator && !canManage;
+    await changeReading(selected.id, "cancel", reason.trim());
     update(
       selected,
       { status: requestOnly ? "cancellation_requested" : "cancelled" },
@@ -1758,7 +1789,8 @@ function RecordManagement({
     );
     close();
   };
-  const restore = (reading: Reading) =>
+  const restore = async (reading: Reading) => {
+    await changeReading(reading.id, "restore", "กู้คืนรายการโดยผู้ดูแลระบบ");
     update(
       reading,
       { status: "active" },
@@ -1770,6 +1802,7 @@ function RecordManagement({
         reason: "กู้คืนรายการโดยผู้ดูแลระบบ",
       },
     );
+  };
   const labels: Record<string, string> = {
     raw1: "มาตรน้ำดิบ 1",
     raw2: "มาตรน้ำดิบ 2",
@@ -2117,15 +2150,28 @@ function ReportMetric({
 }
 function UsersPage({
   requests,
-  setRequests,
+  users,
+  stationId,
+  onChanged,
 }: {
   requests: AccessRequest[];
-  setRequests: React.Dispatch<React.SetStateAction<AccessRequest[]>>;
+  users: AdminUser[];
+  stationId: string;
+  onChanged: () => Promise<void>;
 }) {
-  const update = (id: string, status: AccessRequest["status"], role?: Role) =>
-    setRequests((items) =>
-      items.map((item) => (item.id === id ? { ...item, status, role } : item)),
+  const update = async (
+    id: string,
+    status: AccessRequest["status"],
+    role?: Role,
+  ) => {
+    await reviewAccessRequest(
+      id,
+      stationId,
+      role ?? "Viewer",
+      status === "approved",
     );
+    await onChanged();
+  };
   return (
     <div className="mx-auto max-w-[1100px]">
       <h1 className="text-2xl font-bold text-[#063b66]">จัดการผู้ใช้งาน</h1>
@@ -2221,7 +2267,7 @@ function UsersPage({
             </tr>
           </thead>
           <tbody>
-            {systemUsers.map((user) => (
+            {users.map((user) => (
               <tr key={user.name} className="border-b border-[#e0edf4]">
                 <td className="px-5 py-4 font-bold text-[#263f4e]">
                   {user.name}

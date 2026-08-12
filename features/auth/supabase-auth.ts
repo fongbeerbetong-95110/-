@@ -11,9 +11,8 @@ export type NewAccessRequest = {
 
 export async function signIn(email: string, password: string) {
   const client = getSupabaseBrowserClient();
-  if (!client) return { demo: true };
-  if (!email.includes("@"))
-    throw new Error("กรุณาใช้อีเมลเข้าสู่ระบบ");
+  if (!client) throw new Error("ยังไม่ได้ตั้งค่า Supabase");
+  if (!email.includes("@")) throw new Error("กรุณาใช้อีเมลเข้าสู่ระบบ");
   const { error } = await client.auth.signInWithPassword({ email, password });
   if (error)
     throw new Error(
@@ -21,7 +20,7 @@ export async function signIn(email: string, password: string) {
         ? "อีเมลหรือรหัสผ่านไม่ถูกต้อง"
         : error.message,
     );
-  return { demo: false };
+  return { connected: true };
 }
 
 export async function signOut() {
@@ -60,6 +59,8 @@ export async function getCurrentUserAccess() {
     userId: user.id,
     fullName: String(access.full_name),
     role: roleMap[roleCode],
+    stationCode: String(access.station_code),
+    stationName: String(access.station_name_th),
     mustChangePassword: Boolean(access.must_change_password),
   };
 }
@@ -67,7 +68,7 @@ export async function getCurrentUserAccess() {
 export async function submitAccessRequest(input: NewAccessRequest) {
   const client = getSupabaseBrowserClient();
   const requestNo = `REQ-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
-  if (!client) return { id: crypto.randomUUID(), requestNo, demo: true };
+  if (!client) throw new Error("ยังไม่ได้ตั้งค่า Supabase");
   const { data, error } = await client.rpc("submit_access_request", {
     p_employee_id: input.employeeId,
     p_full_name: input.fullName,
@@ -82,7 +83,7 @@ export async function submitAccessRequest(input: NewAccessRequest) {
         ? "รหัสพนักงานหรืออีเมลนี้มีคำขออยู่แล้ว"
         : error.message,
     );
-  return { id: String(data), requestNo, demo: false };
+  return { id: String(data), requestNo, connected: true };
 }
 
 export { isSupabaseConfigured };

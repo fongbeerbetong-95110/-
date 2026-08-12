@@ -29,8 +29,9 @@ Admin คนแรกต้องสร้างผ่าน Supabase Dashboard 
 ## 4. Integration status
 
 - พร้อม: browser client, environment guard, password sign-in service, access-request RPC, reading repository, schema, RLS พื้นฐาน, seed และ create-reading RPC
-- ยังต้องทำหลังได้รับ Project/API keys: generate Database types จาก Project จริง, Edge Function อนุมัติผู้ใช้, RPC แก้ไข/ยกเลิก/กู้คืน, report views และแทน mock state ใน UI ทีละ feature
-- เมื่อไม่มี environment variables เว็บทำงานด้วย mock data ต่อไปโดยไม่ crash
+- UI ใช้ข้อมูลจริงจาก Supabase สำหรับ Authentication, สถานี, มาตร, Dashboard, รายงาน, คำขอเข้าใช้งาน และผู้ใช้
+- ต้องรัน migrations ตามลำดับถึง `202608120004_admin_and_reading_operations.sql`
+- เมื่อไม่มี environment variables ระบบจะแจ้งว่ายังไม่ได้ตั้งค่า Supabase และไม่สร้างข้อมูลจำลอง
 
 ## 5. Generate types
 
