@@ -9,11 +9,33 @@ export type NewAccessRequest = {
   email: string;
 };
 
-export async function signIn(email: string, password: string) {
+export async function signIn(identity: string, password: string) {
   const client = getSupabaseBrowserClient();
   if (!client) throw new Error("ยังไม่ได้ตั้งค่า Supabase");
-  if (!email.includes("@")) throw new Error("กรุณาใช้อีเมลเข้าสู่ระบบ");
-  const { error } = await client.auth.signInWithPassword({ email, password });
+  if (!identity.includes("@")) {
+    const response = await fetch("/api/auth/employee-login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ employeeId: identity, password }),
+    });
+    const result = (await response.json()) as {
+      accessToken?: string;
+      refreshToken?: string;
+      error?: string;
+    };
+    if (!response.ok || !result.accessToken || !result.refreshToken)
+      throw new Error(result.error ?? "รหัสพนักงานหรือรหัสผ่านไม่ถูกต้อง");
+    const { error: sessionError } = await client.auth.setSession({
+      access_token: result.accessToken,
+      refresh_token: result.refreshToken,
+    });
+    if (sessionError) throw new Error("ไม่สามารถสร้างเซสชันเข้าสู่ระบบได้");
+    return { connected: true };
+  }
+  const { error } = await client.auth.signInWithPassword({
+    email: identity,
+    password,
+  });
   if (error)
     throw new Error(
       error.message === "Invalid login credentials"
