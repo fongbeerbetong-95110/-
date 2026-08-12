@@ -1,0 +1,5 @@
+@import "tailwindcss";
+
+:root{--navy:#063b66;--blue:#087ac1;--sky:#eaf6fd;--line:#cfe3ef;--ink:#102a3b;--muted:#5b7180;--success:#147a4a;--danger:#b42318;--surface:#fff;--bg:#f4f9fc}
+*{box-sizing:border-box}html{background:var(--bg)}body{margin:0;color:var(--ink);background:var(--bg);font-family:Tahoma,"Noto Sans Thai",sans-serif}button,input,select{font:inherit}button{cursor:pointer}button:disabled{cursor:not-allowed;opacity:.52}::selection{background:#bde6fb;color:#043455}:focus-visible{outline:3px solid #f6b900;outline-offset:2px}.tabular{font-variant-numeric:tabular-nums}.scrollbar::-webkit-scrollbar{width:10px;height:10px}.scrollbar::-webkit-scrollbar-thumb{background:#9bc5dc;border:3px solid transparent;background-clip:padding-box;border-radius:999px}
+@keyframes confirm-in{from{opacity:.3;clip-path:inset(8% 0 0 0)}to{opacity:1;clip-path:inset(0)}}.confirm-in{animation:confirm-in .22s cubic-bezier(.16,1,.3,1)}@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;animation-duration:.01ms!important}}
