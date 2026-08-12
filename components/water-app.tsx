@@ -285,7 +285,9 @@ export function WaterApp() {
               สถานะระบบ: พร้อมใช้งาน · ข้อมูลตัวอย่าง
             </div>
           </div>
-          <label className="hidden items-center gap-2 text-xs text-[#5b7180] sm:flex">
+          <label
+            className={`${isSupabaseConfigured ? "hidden" : "hidden sm:flex"} items-center gap-2 text-xs text-[#5b7180]`}
+          >
             มุมมอง Role
             <select
               value={role}
@@ -305,6 +307,11 @@ export function WaterApp() {
               ))}
             </select>
           </label>
+          {isSupabaseConfigured && (
+            <div className="hidden rounded-full bg-[#e7f6ee] px-3 py-1.5 text-xs font-bold text-[#137a4b] sm:block">
+              {roleThai[role]}
+            </div>
+          )}
           <div className="ml-3 grid size-9 place-items-center rounded-full bg-[#d9effb] text-sm font-bold text-[#063b66]">
             ส
           </div>
