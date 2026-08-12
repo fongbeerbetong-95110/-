@@ -39,7 +39,7 @@ export async function loadAdminData() {
     })),
     users: (userResult.data ?? []).map((u: any) => ({
       name: u.full_name,
-      position: u.position,
+      position: u.position_name,
       role: u.role_code,
       status: u.account_status,
     })),

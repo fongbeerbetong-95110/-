@@ -12,7 +12,7 @@ language sql stable security definer set search_path=public as $$
 $$;
 
 create or replace function public.get_admin_users()
-returns table(full_name text,position text,role_code text,account_status public.account_status,station_code text)
+returns table(full_name text,position_name text,role_code text,account_status public.account_status,station_code text)
 language sql stable security definer set search_path=public as $$
   select p.full_name,p.position,r.code,p.account_status,s.code
   from public.profiles p
